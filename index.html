@@ -30,6 +30,21 @@
   .msg.success { background: #e1f5ee; color: #085041; }
   .msg.error { background: #fcebeb; color: #791f1f; }
   .loading { text-align: center; padding: 40px; color: #888780; font-size: 13px; }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: flex-end; justify-content: center; z-index: 10; }
+  .overlay.show { display: flex; }
+  .review-sheet { background: #fff; width: 100%; max-width: 600px; border-radius: 16px 16px 0 0; padding: 20px; max-height: 80vh; overflow-y: auto; }
+  .review-sheet h2 { font-size: 16px; margin-bottom: 4px; }
+  .review-sheet .review-sub { font-size: 12px; color: #5f5e5a; margin-bottom: 16px; }
+  .review-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eeece5; font-size: 14px; }
+  .review-row .r-name { font-weight: 600; }
+  .review-row .r-meta { font-size: 12px; color: #5f5e5a; margin-top: 2px; }
+  .review-row .r-subtotal { font-weight: 600; white-space: nowrap; margin-left: 12px; }
+  .review-total { display: flex; justify-content: space-between; font-size: 16px; font-weight: 700; padding: 14px 0 6px; }
+  .review-customer { font-size: 13px; color: #5f5e5a; margin-bottom: 8px; }
+  .review-actions { display: flex; gap: 10px; margin-top: 16px; }
+  .btn-secondary { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #d3d1c7; background: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .btn-confirm { flex: 1; padding: 12px; border-radius: 8px; border: none; background: #1d3b2f; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .btn-confirm:disabled { background: #b4b2a9; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -57,14 +72,31 @@
     <span>Total</span>
     <span id="cartTotal">Rp 0</span>
   </div>
-  <button class="submit-btn" id="submitBtn" disabled onclick="submitOrder()">Kirim order</button>
+  <button class="submit-btn" id="submitBtn" disabled onclick="openReview()">Kirim order</button>
+</div>
+
+<div class="overlay" id="reviewOverlay">
+  <div class="review-sheet">
+    <h2>Cek pesanan kamu</h2>
+    <p class="review-sub">Pastikan produk dan jumlahnya sudah benar sebelum dikirim.</p>
+    <div class="review-customer" id="reviewCustomer"></div>
+    <div id="reviewItems"></div>
+    <div class="review-total">
+      <span>Total</span>
+      <span id="reviewTotal">Rp 0</span>
+    </div>
+    <div class="review-actions">
+      <button class="btn-secondary" onclick="closeReview()">Batal, edit lagi</button>
+      <button class="btn-confirm" id="confirmBtn" onclick="submitOrder()">Ya, kirim order</button>
+    </div>
+  </div>
 </div>
 
 <script>
 // ============================================================
 // GANTI dengan URL Apps Script Web App kamu setelah deploy
 // ============================================================
-var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwsrlm5SlyEzb3sPNdlgIg0TS6xgN38rTA0ntOWSZylzkFBEsnZh7BzgJIEVVoBqain/exec';
+var SCRIPT_URL = 'https://script.google.com/macros/s/GANTI_DENGAN_DEPLOYMENT_ID/exec';
 
 var products = [];
 var customers = [];
@@ -79,6 +111,11 @@ function jsonpRequest(action, params, onSuccess) {
       onSuccess(result);
     } else {
       showMsg(result.error || 'Terjadi kesalahan', 'error');
+      var confirmBtn = document.getElementById('confirmBtn');
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Ya, kirim order';
+      }
     }
   };
 
@@ -178,37 +215,76 @@ function formatNumber(n) {
   return Number(n).toLocaleString('id-ID');
 }
 
-function submitOrder() {
+function getCartItems() {
+  return Object.keys(cart)
+    .filter(function (id) { return cart[id] > 0; })
+    .map(function (id) {
+      var product = products.find(function (p) { return p.id === id; });
+      return { product_id: id, qty: cart[id], product: product };
+    });
+}
+
+function openReview() {
   var customerId = document.getElementById('customerSelect').value;
   if (!customerId) {
     showMsg('Pilih toko/usaha dulu', 'error');
     return;
   }
 
-  var items = Object.keys(cart)
-    .filter(function (id) { return cart[id] > 0; })
-    .map(function (id) { return { product_id: id, qty: cart[id] }; });
-
+  var items = getCartItems();
   if (!items.length) {
     showMsg('Pilih minimal 1 produk', 'error');
     return;
   }
 
+  var customerName = document.getElementById('customerSelect').selectedOptions[0].text;
+  document.getElementById('reviewCustomer').textContent = 'Dikirim ke: ' + customerName;
+
+  var total = 0;
+  var html = '';
+  items.forEach(function (item) {
+    var subtotal = item.product.price * item.qty;
+    total += subtotal;
+    html += '<div class="review-row">' +
+      '<div>' +
+        '<div class="r-name">' + item.product.name + '</div>' +
+        '<div class="r-meta">' + item.qty + ' x Rp ' + formatNumber(item.product.price) + ' / ' + item.product.unit + '</div>' +
+      '</div>' +
+      '<div class="r-subtotal">Rp ' + formatNumber(subtotal) + '</div>' +
+    '</div>';
+  });
+  document.getElementById('reviewItems').innerHTML = html;
+  document.getElementById('reviewTotal').textContent = 'Rp ' + formatNumber(total);
+
+  document.getElementById('reviewOverlay').classList.add('show');
+}
+
+function closeReview() {
+  document.getElementById('reviewOverlay').classList.remove('show');
+}
+
+function submitOrder() {
+  var customerId = document.getElementById('customerSelect').value;
+  var items = getCartItems().map(function (item) {
+    return { product_id: item.product_id, qty: item.qty };
+  });
   var selectedOption = document.getElementById('customerSelect').selectedOptions[0];
   var zoneId = selectedOption.getAttribute('data-zone');
 
-  document.getElementById('submitBtn').disabled = true;
-  document.getElementById('submitBtn').textContent = 'Mengirim...';
+  document.getElementById('confirmBtn').disabled = true;
+  document.getElementById('confirmBtn').textContent = 'Mengirim...';
 
   jsonpRequest('submitOrder', {
     customer_id: customerId,
     zone_id: zoneId,
     items: JSON.stringify(items)
   }, function (result) {
+    closeReview();
     showMsg('Order berhasil dikirim! Nomor order: ' + result.order_id, 'success');
     cart = {};
     renderProducts();
-    document.getElementById('submitBtn').textContent = 'Kirim order';
+    document.getElementById('confirmBtn').disabled = false;
+    document.getElementById('confirmBtn').textContent = 'Ya, kirim order';
     updateCartSummary();
   });
 }
